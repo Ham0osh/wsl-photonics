@@ -1,0 +1,65 @@
+dxf_path = r"\\wsl.localhost\Ubuntu/\home\hamish\SiEPIC\illustrations\HJ_dxf.dxf"  # Change this to your file path
+
+"""
+This macro loads a vector grafic from a DXF file into a polygon for tapeout.
+
+Written by Hamish Johnson (2026) based on the SiEPIC SiN and Beta libraries.
+"""
+
+import pya
+import os
+from SiEPIC.utils import get_technology_by_name
+
+class Logo_on_SiN(pya.PCellDeclarationHelper):
+    def __init__(self):
+        super(Logo_on_SiN, self).__init__()
+        TECHNOLOGY = get_technology_by_name("EBeam")
+        
+        # Parameters
+        self.param("dxf_path", self.TypeString, "Logo DXF Path", default=dxf_path)
+        self.param("scaling", self.TypeDouble, "Scaling Factor", default=1.0)
+        self.param("target_layer", self.TypeLayer, "Target Layer", default=TECHNOLOGY["SiN"])
+        # TODO: Add estimate of minimum feature width
+        # TODO: Add toggle for negative image and bounding box border width
+        
+    def produce_impl(self):
+        # self.target_layer_layer is the actual handle (index) for the dropdown selection
+        target_idx = self.target_layer_layer
+        
+        if not os.path.exists(self.dxf_path):
+            self.cell.shapes(target_idx).insert(pya.Text("DXF NOT FOUND", pya.Trans()))
+            return
+
+        # Setup reader options
+        opt = pya.LoadLayoutOptions()
+        opt.dxf_dbu = 0.001  # Force 1nm resolution
+
+        # Load DXF into a sandbox layout
+        temp_ly = pya.Layout()
+        temp_ly.read(self.dxf_path, opt)
+        
+        # Force shapes from ALL DXF layers into the SELECTED layer
+        for dxf_layer_idx in temp_ly.layer_indices():
+            # Get the shapes from the DXF's top cell
+            dxf_shapes = temp_ly.top_cell().shapes(dxf_layer_idx)
+            
+            # Apply scaling/transformation if necessary
+            if self.scaling != 1.0:
+                t = pya.ICanvasTransform().scale(self.scaling)
+                # Note: We copy shapes individually to ensure they land on the right index
+                for shape in dxf_shapes.each():
+                    scaled_shape = shape.transformed(t)
+                    self.cell.shapes(target_idx).insert(scaled_shape)
+            else:
+                # Direct copy if no scaling needed
+                self.cell.shapes(target_idx).insert(dxf_shapes)
+
+# Register the library so it appears in the Instance menu
+class LogoLib(pya.Library):
+    def __init__(self):
+        self.technology = "EBeam"
+        self.layout().register_pcell("Logo_on_SiN", Logo_on_SiN())
+        self.register("Logo_Library")
+
+# Instantiate the library
+LogoLib()
